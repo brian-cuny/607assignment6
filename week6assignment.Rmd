@@ -1,3 +1,10 @@
+---
+output: 
+  html_document:
+    css: custom.css
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(magrittr)
 library(jsonlite)
@@ -7,8 +14,25 @@ library(httr)
 library(RCurl)
 library(scales)
 library(ggrepel)
+library(knitr)
+```
 
-# nyt api -----------------------------------------------------------------
+<div class='jumbotron'>
+  <h2 class='display-3 text-uppercase'>week 6 Assignment</h2>
+  <h4 class='right text-uppercase'>By Brian Weinfeld</h4>
+  <div class='clearfix'></div>
+  <h5 class='right text-uppercase'>March 24, 2018</h5>
+</div>
+
+<div class='page-header text-uppercase'>
+  <h3>Set Up</h3>
+</div>
+
+<div class='well'>
+I began by creating a function that will process each call to the NY Times API movie database. This function passes along the queries that I want to the appropriate url.
+</div>
+
+```{r message=FALSE, warning=FALSE}
 url <- 'https://api.nytimes.com/svc/movies/v2/reviews/search.json'
 api.key <- read_table('C:\\Users\\Brian\\Desktop\\GradClasses\\Spring18\\607\\assignments\\week6assignmentKey.txt', col_names=FALSE) %>% 
   unlist() %>%
@@ -22,9 +46,13 @@ API.Query <- function(params){
     .[[5]] %>%
     as.tibble()
 }
+```
 
-# boxofficemojo -----------------------------------------------------------
+<div class='well'>
+I connected to a website that lists movie box office recipts and scraped the top 100 domestic grossing movies of 2017 along with several other helpful pieces of data.
+</div>
 
+```{r}
 movie.data.html <- getURL('http://www.boxofficemojo.com/yearly/chart/?yr=2017&p=.htm') %>% 
   htmlParse()
 
@@ -45,16 +73,28 @@ movie.data.frame <- movie.data.html %>%
   setNames(movie.data.headers) %>%
   mutate(Movie=str_replace(Movie, '(.*?)( \\(2017\\))$', '\\1')) %>%
   select(1:4)
+movie.data.frame %>% head(20) %>% kable()
+```
 
-# process -----------------------------------------------------------------
+<div class='well'>
+I made 100 calls to the NY Times API sending in each movie one at a time. All movies that contained a review were stroed in a data frame.
+</div>
 
+```{r}
 review.data.frame <- movie.data.frame$Movie %>%
   map_df(~API.Query(list('query'=as.character(.)))) %>% 
   filter(publication_date %>% startsWith('2017')) %>%
   filter(display_title %in% movie.data.frame$Movie) %>%
   select(1:3) %>%
   unique()
+review.data.frame %>% head() %>% kable()
+```
 
+<div class='well'>
+I combined the two data frames together, keeping the relevant information.
+</div>
+
+```{r}
 combined.frame <- movie.data.frame %>%
   inner_join(review.data.frame, by=c('Movie'='display_title')) %>%
   mutate(Rank = Rank %>% as.numeric(),
@@ -62,16 +102,32 @@ combined.frame <- movie.data.frame %>%
          critics_pick = critics_pick %>% as.factor()
          ) %>%
   distinct()
+combined.frame %>% head(10) %>% kable()
+```
 
 
-# graphs ------------------------------------------------------------------
+<div class='page-header text-uppercase'>
+  <h3>Analysis</h3>
+</div>
+
+<div class='well'>
+This first graph shows the distribution of movies based on their ratings. It highlights how much big grossing movies are either PG-13 or R.
+</div>
+
+```{r}
 ggplot(combined.frame) +
   geom_bar(aes(x=mpaa_rating, fill=Studio)) +
   labs(x='Mpaa Rating',
         y='Count',
         title='PG-13 and R Movies are Biggest Sellers'
         )
+```
 
+<div class='well'>
+This graph shows the distributions of movies based on their rating. The top 3 grossing movies in each category are displayed along with a line indicating the top grossing movie in each rating group. This clearly shows that although PG-13 and R movies have roughly equal representation on the top 100, PG-13 movies are the bigger grossing movies.
+</div>
+
+```{r}
 ggplot(combined.frame) + 
   geom_point(aes(x=mpaa_rating %>% as.factor(), y=Total)) +
   geom_hline(yintercept=combined.frame %>% 
@@ -98,24 +154,26 @@ ggplot(combined.frame) +
        title='PG-13 Movies Are Highest Earners'
        ) +
   theme(legend.position='none')
+```
 
+<div class='well'>
+For the next analysis I limited the data to only the top 5 most represented movie studios.
+</div>
+
+```{r}
 best.studios <- combined.frame %>%
   group_by(Studio) %>%
   summarize(count=n()) %>%
   arrange(count %>% desc()) %>%
-  top_n(5)
+  top_n(5, count)
+best.studios %>% kable()
+```
 
-combined.frame %>%
-  filter(Studio %in% best.studios$Studio) %>%
-  ggplot() +
-  stat_density(aes(x=Total, color=Studio), size=2, geom='line') + 
-  scale_x_continuous(labels=comma) +
-  scale_color_brewer(palette='Set1') + 
-  theme(axis.ticks.y=element_blank(),
-        axis.text.y=element_blank()
-        ) +
-  labs(y='Density')
+<div class='well'>
+This graph shows the top 5 represented movie studios with each of their movies seperated based on whether the NY Times recommended them or not. This shows that Buena Vista (Disney) is the most liked studio while Universal is the least.
+</div>
 
+```{r warning=FALSE}
 combined.frame %>%
   filter(Studio %in% best.studios$Studio) %>%
   ggplot() +
@@ -126,5 +184,9 @@ combined.frame %>%
        title='Top 100 Grossing Movies of 2017 by Studio and Recommendations') +
   scale_x_discrete(labels=c('No', 'Yes')) +
   scale_y_continuous(labels=0:10, breaks=0:10)
+```
 
-
+<div class='alert alert-info'>
+<p>PG-13 movies are the most profitable although R movies have strong, although lower, repesentation in the top 100. G movies rarely appear</p>
+<p>Buena Vista had the most well received blockbuster movies in 2017 while Universal had the least.</p>
+</div>
