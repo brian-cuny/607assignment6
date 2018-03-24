@@ -4,7 +4,7 @@ library(jsonlite)
 library(yaml)
 library(XML)
 library(httr)
-
+library(RCurl)
 
 # nyt api -----------------------------------------------------------------
 url <- 'https://api.nytimes.com/svc/movies/v2/reviews/search.json'
@@ -25,17 +25,33 @@ API.Query <- function(params){
 
 # boxofficemojo -----------------------------------------------------------
 
-movie.data.frame <- getURL('http://www.boxofficemojo.com/yearly/chart/?yr=2018&p=.htm') %>% 
-  htmlParse() %>%
-  xpathSApply('//*[@id="body"]/table[3]//tr/td[2]', xmlValue) %>%
-  str_c("'", ., "'") %>%
-  .[3:102]
+movie.data.html <- getURL('http://www.boxofficemojo.com/yearly/chart/?yr=2017&p=.htm') %>% 
+  htmlParse()
 
-data <- movie.data.frame %>%
-  map_df(~API.Query(list('query'=as.character(.))))
+movie.data.headers <- movie.data.html %>%
+  xpathSApply('//*[@id="body"]/table[3]//tr//td', xmlValue) %>%
+  .[c(7:9, 11:14)] %>%
+  str_split(' / ') %>% 
+  unlist() %>%
+  str_extract('\\w+') %>%
+  unique()
 
-current <- data %>% 
-  filter(publication_date %>% startsWith('2018'))
+movie.data.frame <- movie.data.html %>%
+  xpathSApply('//*[@id="body"]/table[3]//tr//td', xmlValue) %>%
+  .[15:914] %>%
+  matrix(ncol=9, byrow=T) %>%
+  as.data.frame() %>%
+  select(-7) %>%
+  setNames(movie.data.headers) %>%
+  mutate(Movie=str_c("'", Movie, "'"))
+
+
+review.data.frame <- movie.data.frame %>%
+  map_df(~API.Query(list('query'=as.character(.)))) %>% 
+  filter(publication_date %>% startsWith('2017'))
+
+
+# join them here ----------------------------------------------------------
 
 
 
