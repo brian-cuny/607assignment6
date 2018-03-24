@@ -14,13 +14,11 @@ api.key <- read_table('C:\\Users\\Brian\\Desktop\\GradClasses\\Spring18\\607\\as
 
 API.Query <- function(params){
   Sys.sleep(1)
-  temp <- GET(url, query=c('api-key'=api.key, params)) %>%
+  GET(url, query=c('api-key'=api.key, params)) %>%
     content(as='text') %>%
     fromJSON(flatten=TRUE) %>%
     .[[5]] %>%
     as.tibble()
-  print(temp)
-  return(temp)
 }
 
 # boxofficemojo -----------------------------------------------------------
@@ -43,15 +41,60 @@ movie.data.frame <- movie.data.html %>%
   as.data.frame() %>%
   select(-7) %>%
   setNames(movie.data.headers) %>%
-  mutate(Movie=str_c("'", Movie, "'"))
+  mutate(Movie=str_replace(Movie, '(.*?)( \\(2017\\))$', '\\1')) %>%
+  select(1:4)
 
+# process -----------------------------------------------------------------
 
-review.data.frame <- movie.data.frame %>%
+review.data.frame <- movie.data.frame$Movie %>%
   map_df(~API.Query(list('query'=as.character(.)))) %>% 
-  filter(publication_date %>% startsWith('2017'))
+  filter(publication_date %>% startsWith('2017')) %>%
+  filter(display_title %in% movie.data.frame$Movie) %>%
+  select(1:3) %>%
+  unique()
+
+combined.frame <- movie.data.frame %>%
+  inner_join(review.data.frame, by=c('Movie'='display_title')) %>%
+  mutate(Rank = as.numeric(Rank),
+         Total = Total %>% parse_number(),
+         Opening = Opening %>% parse_number())
 
 
-# join them here ----------------------------------------------------------
+# graphs ------------------------------------------------------------------
+require(scales)
+
+ggplot(combined.frame) +
+  geom_bar(aes(x=mpaa_rating, fill=Studio))
+
+ggplot(combined.frame) + 
+  geom_point(aes(x=mpaa_rating %>% as.factor(), y=Total)) +
+  geom_hline(yintercept=combined.frame %>% filter(mpaa_rating == 'G') %>% .$Total %>% max(), col='pink') +
+  geom_hline(yintercept=combined.frame %>% filter(mpaa_rating == 'PG') %>% .$Total %>% max(), col='red') +
+  geom_hline(yintercept=combined.frame %>% filter(mpaa_rating == 'PG-13') %>% .$Total %>% max(), col='red4') +
+  geom_hline(yintercept=combined.frame %>% filter(mpaa_rating == 'R') %>% .$Total %>% max(), col='darksalmon') +
+  scale_y_continuous(limits=c(combined.frame$Total %>% min(), combined.frame$Total %>% max()),
+                     labels=comma
+  ) + 
+  labs(x='MPAA Rating',
+       title='PG-13 Movies Are Highest Earners')
+
+best.studios <- combined.frame %>%
+  group_by(Studio) %>%
+  summarize(count=n()) %>%
+  arrange(count %>% desc()) %>%
+  top_n(5)
+
+combined.frame %>%
+  filter(Studio %in% best.studios$Studio) %>%
+  ggplot() +
+  stat_density(aes(x=Total, color=Studio), size=2, geom='line') + 
+  scale_x_continuous(labels=comma) +
+  scale_color_brewer(palette='Set1') + 
+  theme(axis.ticks.y=element_blank(),
+        axis.text.y=element_blank()
+        ) +
+  labs(y='Density')
+
 
 
 
